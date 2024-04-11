@@ -1,0 +1,152 @@
+// Создать объект программного последовательного порта для связи с SIM900
+// Tx и Rx SIM900 подключены к выводам 7 и 8 Arduino
+#include <SoftwareSerial.h>
+SoftwareSerial mySerial(7, 8);
+//MQ8&MQ9
+#include <BaseMQ.h>
+#include <MQ8.h>
+#include <MQ9.h>
+#include <TroykaMQ.h>
+// имя для пина, к которому подключен датчик
+#define PIN_MQ9         A1
+// имя для пина, к которому подключен нагреватель датчика
+#define PIN_MQ9_HEATER  5
+// создаём объект для работы с датчиком
+// и передаём ему номер пина выходного сигнала и нагревателя
+MQ9 mq9(PIN_MQ9, PIN_MQ9_HEATER);
+
+// имя для пина, к которому подключен датчик
+#define PIN_MQ8         A0
+// имя для пина, к которому подключен нагреватель датчика
+#define PIN_MQ8_HEATER  4
+// создаём объект для работы с датчиком
+// и передаём ему номер пина выходного сигнала и нагревателя
+MQ8 mq8(PIN_MQ8, PIN_MQ8_HEATER);
+//BMP280
+#include <Adafruit_BMP280.h>
+Adafruit_BMP280 bmp280;
+
+// переменная для интервала измерений
+#define INTERVAL_GET_DATA 2000  // интервала измерений, мс
+unsigned long millis_int1=0;
+int pos=0;
+int cont_ = 1;
+int i=0;
+//чтото
+#include <Wire.h>
+#include <SPI.h>
+
+
+void setup() {
+  // Начать последовательную связь Arduino и Arduino IDE (монитор последовательного порта)
+  Serial.begin(9600);
+  // Начать последовательную связь Arduino и SIM900
+  mySerial.begin(9600);
+  mySerial.print("AT+CMGF=1\r");  //режим кодировки СМС - обычный (для англ.)
+  mySerial.println("AT+CSCS=\"GSM\"");  //режим кодировки текста
+  mySerial.println("AT+CMGS=\"+79163145566\"");
+  
+  Serial.println("Initializing...");
+  delay(1000);
+  // Рукопожатие с SIM900
+  mySerial.println("AT");
+  updateSerial();
+  delay(2000);
+  // Тест качества сигнала, диапазон значений 0-31, 31 - лучший
+  Serial.print("Уровень сигнала: ");mySerial.println("AT+CSQ");
+  updateSerial();
+  delay(2000);
+  // Прочитать информацию о SIM карте, чтобы убедиться, что SIM карта подключена
+  Serial.print("получение уникального серийного номера SIM-карты: ");mySerial.println("AT+CCID");
+  updateSerial();
+  delay(2000);
+  // Проверяем, зарегистрирован ли модуль в сети
+  Serial.print("Тип регистрации сети: ");mySerial.println("AT+CREG?");
+  updateSerial();
+  delay(2000);
+  
+  //MQ9
+  // в течении 60 секунд на нагревательный элемент подаётся 5 вольт
+  // в течении 90 секунд — 1,5 вольта
+  mq9.cycleHeat();
+  
+  //MQ8
+  mq8.heaterPwrHigh();
+  
+  //BMP280
+  //инициализация
+  while (!bmp280.begin(BMP280_ADDRESS - 1)) {
+    Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
+ }
+}
+
+void loop()
+{
+  updateSerial();
+  Serial.println("Battery: ");mySerial.println("AT+CBC");updateSerial();
+  //Считывание данных
+  float pressure = bmp280.readPressure();
+  int altitude = bmp280.readAltitude();
+  float temperature = bmp280.readTemperature(); 
+  float density = (pressure*29)/(8.31*(temperature+273)); 
+  Serial.println("BMP280: ");updateSerial();
+  Serial.print(" pressure: ");Serial.print(pressure);Serial.println(" Pa");updateSerial();
+  Serial.print(" altitude: ");Serial.print(altitude);Serial.println(" m");updateSerial();
+  Serial.print(" temperature: ");Serial.print(temperature);Serial.println(" +-0,01°C");updateSerial();
+  Serial.print(" density: ");Serial.print(density);Serial.println(" kg/m^3");updateSerial();
+  // если прошёл интервал нагрева датчика
+  // и калибровка не была совершена
+  Serial.println("mq8:");updateSerial;
+  if (!mq8.isCalibrated() && mq8.heatingCompleted()) {
+    mq8.calibrate();
+    Serial.print(" Ro = ");Serial.println(mq8.getRo());
+    updateSerial();
+  }  
+  if (mq8.isCalibrated() && mq8.heatingCompleted()){
+          // выводим отношения текущего сопротивление датчика mq8
+    // к сопротивлению датчика в чистом воздухе (Rs/Ro)
+    Serial.print(" Ratio: ");Serial.println(mq8.readRatio());updateSerial();
+    // выводим значения газов в ppm
+    Serial.print(" Hydrogen: ");Serial.print(mq8.readHydrogen());Serial.println(" ppm ");updateSerial();
+  } 
+  Serial.println("mq9:");updateSerial;
+  if (!mq9.isCalibrated() && mq9.heatingCompleted()) {
+    // выполняем калибровку датчика на чистом воздухе
+    mq9.calibrate();
+    // выводим сопротивление датчика в чистом воздухе (Ro) в serial-порт
+    Serial.print(" Ro = ");Serial.println(mq9.getRo());updateSerial();
+  }
+  // если прошёл интевал нагрева датчика
+  // и калибровка была совершена
+  if (mq9.isCalibrated() && mq9.heatingCompleted()) {
+    // выводим отношения текущего сопротивление датчика mq9
+    // к сопротивлению датчика в чистом воздухе (Rs/Ro)
+    Serial.print(" Ratio: ");Serial.println(mq9.readRatio());updateSerial();
+    // выводим значения газов в ppm
+    Serial.print(" Liquefied petroleum gases: ");Serial.print(mq9.readLPG());Serial.println(" ppm ");updateSerial();
+    Serial.print(" Methane: ");Serial.print(mq9.readMethane());Serial.println(" ppm ");updateSerial();
+    Serial.print(" CarbonMonoxide: ");Serial.print(mq9.readCarbonMonoxide());Serial.println(" ppm ");updateSerial();
+    updateSerial();
+    }
+
+   updateSerial();
+   delay(10000);
+}
+
+void updateSerial()
+{
+  delay(500);
+  while (Serial.available())
+  {
+    // Пересылка того, что было получено с аппаратного последовательного порта, 
+    // на программный последовательный порт
+    mySerial.write(Serial.read());
+    mySerial.print((char)26);
+  }
+ 
+  while(mySerial.available()) {
+    // Пересылка того, что было получено с программного последовательного порта, 
+    // на аппаратный последовательный порт
+    Serial.write(mySerial.read());
+  }
+}
