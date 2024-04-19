@@ -1,3 +1,15 @@
+//Wi-Fi
+void SIM900power()
+{
+  pinMode(9, OUTPUT);
+  digitalWrite(9,LOW);
+  delay(1000);
+  digitalWrite(9,HIGH);
+  delay(2000);
+  digitalWrite(9,LOW);
+  delay(3000);
+}
+
 // Создать объект программного последовательного порта для связи с SIM900
 // Tx и Rx SIM900 подключены к выводам 7 и 8 Arduino
 #include <SoftwareSerial.h>
@@ -32,7 +44,10 @@ unsigned long millis_int1=0;
 int pos=0;
 int cont_ = 1;
 int i=0;
-//чтото
+int ch = 0;
+String Inf = "";
+String val = "";
+//что-то
 #include <Wire.h>
 #include <SPI.h>
 
@@ -42,11 +57,14 @@ void setup() {
   Serial.begin(9600);
   // Начать последовательную связь Arduino и SIM900
   mySerial.begin(9600);
-  mySerial.print("AT+CMGF=1\r");  //режим кодировки СМС - обычный (для англ.)
+  mySerial.println("AT+CLIP=1");  //включаем АОН
+  delay(100);
+  mySerial.println("AT+CMGF=1");  //режим кодировки СМС - обычный (для англ.)
+  delay(100);
   mySerial.println("AT+CSCS=\"GSM\"");  //режим кодировки текста
-  mySerial.println("AT+CMGS=\"+79163145566\"");
+  delay(100);
   
-  Serial.println("Initializing...");
+  Serial.println("Инициализация...");
   delay(1000);
   // Рукопожатие с SIM900
   mySerial.println("AT");
@@ -78,59 +96,97 @@ void setup() {
   while (!bmp280.begin(BMP280_ADDRESS - 1)) {
     Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
  }
+ delay(10000);
 }
 
 void loop()
 {
+
   updateSerial();
   Serial.println("Battery: ");mySerial.println("AT+CBC");updateSerial();
   //Считывание данных
   float pressure = bmp280.readPressure();
   int altitude = bmp280.readAltitude();
   float temperature = bmp280.readTemperature(); 
-  float density = (pressure*29)/(8.31*(temperature+273)); 
+  float density = (pressure*29)/(8.31*(temperature+273));  
+  if (mySerial.available()) {  //если GSM модуль что-то послал нам, то
+    while (mySerial.available()) {  //сохраняем входную строку в переменную val
+      ch = mySerial.read();
+      val += char(ch);
+      delay(10);
+    }
+      Serial.println(val);  //печатаем в монитор порта пришедшую строку
+    val = "";
+     if (Serial.available()) {  //если в мониторе порта ввели что-то
+    while (Serial.available()) {  //сохраняем строку в переменную val
+      ch = Serial.read();
+      val += char(ch);
+      delay(10);
+    }
+    if (val.indexOf("sendsms") > -1) {  //если увидели команду отправки СМС
+        if (mq8.isCalibrated() && mq8.heatingCompleted() && mq9.isCalibrated() && mq9.heatingCompleted()){
+          sms(String(Inf), String("+XXXXXXXXXXX"));  //отправляем СМС на номер
+          Inf = "";
+        }
+    }
+        val = "";  //очищаем
+    }
+  }
   Serial.println("BMP280: ");updateSerial();
-  Serial.print(" pressure: ");Serial.print(pressure);Serial.println(" Pa");updateSerial();
-  Serial.print(" altitude: ");Serial.print(altitude);Serial.println(" m");updateSerial();
-  Serial.print(" temperature: ");Serial.print(temperature);Serial.println(" +-0,01°C");updateSerial();
-  Serial.print(" density: ");Serial.print(density);Serial.println(" kg/m^3");updateSerial();
+  Serial.print(" Давление: ");Serial.print(pressure);Serial.println(" Pa");updateSerial();
+  Serial.print(" Высота: ");Serial.print(altitude);Serial.println(" m");updateSerial();
+  Serial.print(" Температура: ");Serial.print(temperature);Serial.println(" +-0,01°C");updateSerial();
+  Serial.print(" Плотность: ");Serial.print(density);Serial.println(" kg/m^3");updateSerial();
   // если прошёл интервал нагрева датчика
   // и калибровка не была совершена
   Serial.println("mq8:");updateSerial;
   if (!mq8.isCalibrated() && mq8.heatingCompleted()) {
     mq8.calibrate();
-    Serial.print(" Ro = ");Serial.println(mq8.getRo());
+    Serial.print(" Сопротивление = ");Serial.println(mq8.getRo());
     updateSerial();
   }  
   if (mq8.isCalibrated() && mq8.heatingCompleted()){
           // выводим отношения текущего сопротивление датчика mq8
     // к сопротивлению датчика в чистом воздухе (Rs/Ro)
-    Serial.print(" Ratio: ");Serial.println(mq8.readRatio());updateSerial();
+    Serial.print(" Отношение текущего сопротивления датчика к сопротивлению датчика в чистом воздухе: ");Serial.println(mq8.readRatio());updateSerial();
     // выводим значения газов в ppm
-    Serial.print(" Hydrogen: ");Serial.print(mq8.readHydrogen());Serial.println(" ppm ");updateSerial();
+    Serial.print(" Водород: ");Serial.print(mq8.readHydrogen());Serial.println(" ppm ");updateSerial();
   } 
   Serial.println("mq9:");updateSerial;
   if (!mq9.isCalibrated() && mq9.heatingCompleted()) {
     // выполняем калибровку датчика на чистом воздухе
     mq9.calibrate();
     // выводим сопротивление датчика в чистом воздухе (Ro) в serial-порт
-    Serial.print(" Ro = ");Serial.println(mq9.getRo());updateSerial();
+    Serial.print(" Сопротивление = ");Serial.println(mq9.getRo());updateSerial();
   }
   // если прошёл интевал нагрева датчика
   // и калибровка была совершена
   if (mq9.isCalibrated() && mq9.heatingCompleted()) {
     // выводим отношения текущего сопротивление датчика mq9
     // к сопротивлению датчика в чистом воздухе (Rs/Ro)
-    Serial.print(" Ratio: ");Serial.println(mq9.readRatio());updateSerial();
+    Serial.print(" Отношение текущего сопротивления датчика к сопротивлению датчика в чистом воздухе: ");Serial.println(mq9.readRatio());updateSerial();
     // выводим значения газов в ppm
-    Serial.print(" Liquefied petroleum gases: ");Serial.print(mq9.readLPG());Serial.println(" ppm ");updateSerial();
-    Serial.print(" Methane: ");Serial.print(mq9.readMethane());Serial.println(" ppm ");updateSerial();
-    Serial.print(" CarbonMonoxide: ");Serial.print(mq9.readCarbonMonoxide());Serial.println(" ppm ");updateSerial();
+    Serial.print(" Сжиженные нефтяные газы: ");Serial.print(mq9.readLPG());Serial.println(" ppm ");updateSerial();
+    Serial.print(" Метан: ");Serial.print(mq9.readMethane());Serial.println(" ppm ");updateSerial();
+    Serial.print(" Монооксид углерода: ");Serial.print(mq9.readCarbonMonoxide());Serial.println(" ppm ");updateSerial();
     updateSerial();
     }
 
    updateSerial();
    delay(10000);
+}
+
+void sms(String text, String phone)  //процедура отправки СМС
+{
+  Serial.println("SMS send started");
+  mySerial.println("AT+CMGS=\"" + phone + "\"");
+  delay(500);
+  mySerial.print(text);
+  delay(500);
+  mySerial.print((char)26);
+  delay(500);
+  Serial.println("SMS send complete");
+  delay(2000);
 }
 
 void updateSerial()
@@ -141,7 +197,7 @@ void updateSerial()
     // Пересылка того, что было получено с аппаратного последовательного порта, 
     // на программный последовательный порт
     mySerial.write(Serial.read());
-    mySerial.print((char)26);
+    Inf += Serial.read();
   }
  
   while(mySerial.available()) {
